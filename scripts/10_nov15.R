@@ -25,9 +25,10 @@ vars <- c(
 justice_outcome <- read_csv("data/10_Nov15/Dietrich et al. (2019)/tables2/tables/data/justice_outcome_data.csv") |>
   filter(docket %in% sc$docketId) |>
   mutate(across(where(is.character), ~ replace_na(.x, "-99"))) |>
+  mutate(across(everything(), ~ replace_na(.x, -99))) |>
   left_join(select(sc, docketId, justice, pitch_diff, petitioner_vote, justiceName), join_by(docket == docketId, justice)) |>
-  select(vars) |> 
-  drop_na(petitioner_vote) |> 
+  select(-1, -correct, -direction, -outcome, -docket, -target, -justiceName) |> 
+  drop_na() |> 
   mutate(petitioner_vote = as.factor(petitioner_vote))
 
 splits <- initial_validation_split(justice_outcome, strata = petitioner_vote)
@@ -61,7 +62,7 @@ rf_res |>
 
 # the last model
 last_rf_mod <- 
-  rand_forest(mtry = 1, min_n = 7, trees = 1000) |> 
+  rand_forest(mtry = 11, min_n = 11, trees = 1000) |> 
   set_engine("ranger", num.threads = 6, importance = "impurity") |> 
   set_mode("classification")
 
@@ -83,10 +84,11 @@ last_rf_fit |>
 #### 
 # Bayesian extension
 library(brms)
+library(lme4)
 
 options(future = FALSE)
 
-fit <- brm(
+fit <- glmer(
   formula = petitioner_vote ~ pitch_diff + law_type + lc_disposition + issue + issue_area + month_argument + 
     month_decision + petitioner + petitioner_dk + respondent + respondent_dk + cert_reason + 
     court_direction_issue_mean + court_direction_mean_10 + lower_court_direction_issue_mean + 
@@ -96,7 +98,10 @@ fit <- brm(
     diff_court_lc_direction_abs_z + diff_justice_court_direction + diff_justice_court_direction_issue + 
     diff_justice_court_direction_z + justice_agree_mean_10 + (1 | justiceName),
   data = justice_outcome,
-  family = bernoulli(),
-  cores = 4
+  family = binomial(link = "logit")
 )
 
+modelsummary::modelsummary(fit, 
+                           stars = TRUE, 
+                           coef_map = "pitch_diff",
+                           output = "10_nov15.jpg")
